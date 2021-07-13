@@ -458,12 +458,12 @@ library SafeERC20 {
         address spender,
         uint256 value
     ) internal {
-        unchecked {
+    
             uint256 oldAllowance = token.allowance(address(this), spender);
             require(oldAllowance >= value, "SafeERC20: decreased allowance below zero");
             uint256 newAllowance = oldAllowance - value;
             _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));
-        } 
+        
     }
 
     /**
@@ -2029,6 +2029,8 @@ contract BlokistaNFT is ERC721, Ownable {
     // Map the number of tokens burnt per nftId
     mapping(uint256 => uint256) public nftBurnCount;
 
+    // in auction?
+    mapping(uint256 => bool) public onAuction;
     // Used for generating the tokenId of new NFT minted
     Counters.Counter private _tokenIds;
 
@@ -2039,16 +2041,18 @@ contract BlokistaNFT is ERC721, Ownable {
     // Map the nftName for a tokenId (parent: nftId child: tokenId)
     mapping(uint256 => string) private nftNames;
 
-    mapping(uint256 => address) private bidders;
+    mapping(uint256 => address) private  bidders;
 
 
-
+    event JustPurchased(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri );
     event NftListStatus(address indexed owner, uint256 nftID, bool listedOrNot);
-    event Purchased(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri);
+    event AuctionEnded(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri);
     event PriceUpdated(address indexed owner, uint256 oldPrice, uint256 newPrice, uint256 tokenID);
+    event AuctionStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent);
+    event MadeOffer(address indexed owner, uint256 tokenID, uint256 price);
 
 modifier _validateTokenOwner(uint256 _tokenId){
-    require(_msgSender()==ownerOf(_tokenId));
+    require(_msgSender()==ownerOf(_tokenId),"This is not the owner");
      require(_exists(_tokenId), "Error,tokenId does not exist");
     _;
 
@@ -2061,14 +2065,40 @@ modifier _validateBuyer(uint256 _tokenId) {
         require(_msgSender() != ownerOf(_tokenId), "Can not buy what you own");
         _;
     }
-
+modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
+        require(_exists(_tokenId), "Error, wrong tokenId");
+        require(_msgSender() != ownerOf(_tokenId), "Can not buy what you own");
+        require(_offer>price[_tokenId]+price[_tokenId]*minBidIncrease[_tokenId]/100,"This bid is lower then");
+        require(onAuction[_tokenId],"This token is not on auction");
+        _;
+}
     constructor(string memory _baseURI, address _wbnb) public ERC721("Blokista", "BLOKISTA") {
         _setBaseURI(_baseURI);
         feeAddress=_msgSender();
         wbnb=_wbnb;
     }
-    
-    
+    /*
+    * 0=Not on Sale Nor On Auction   
+    * 1=On Auction
+    * 2=On justSell
+    */
+    function getStatus(uint256 _id) external view returns (uint8){
+        if(haveListed[_id])
+        { 
+            if(onAuction[_id]){
+                return 1;
+            }
+            else
+            {
+            return 2;
+            }
+        }        
+       else{
+            return 0; 
+       } 
+       
+    }
+  
   
 
     /**
@@ -2107,10 +2137,11 @@ modifier _validateBuyer(uint256 _tokenId) {
      * @dev Mint NFTs. Only the owner can call it.
      */
     function mint(
-        string memory _tokenURI, uint256 _price)
+        string memory _tokenURI,string memory _name)
      external returns (uint256) {
          
          uint256 _nftId=_nftIdCount.current();
+        nftNames[_nftId] = _name;
         
          _nftIdCount.increment();
     
@@ -2123,20 +2154,18 @@ modifier _validateBuyer(uint256 _tokenId) {
         nftCount[_nftId] = nftCount[_nftId].add(1);
         _safeMint(_msgSender(),newId);
         _setTokenURI(newId, _tokenURI);
-        price[newId] = _price;
+        
         haveListed[newId]=false;
                
         return _nftId;
     }
     
-function multipleMint(string[] memory _tokenURIs, uint256 _price, uint256 _amountOfToken) external returns (uint256){
-    
-    
+function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken) external returns (uint256){
     
     uint256 _nftId=_nftIdCount.current();
         
          _nftIdCount.increment();
-    
+    nftNames[_nftId] = _name;
         for(uint256 i=0;i<_amountOfToken;i++){
         
         uint256 newId = _tokenIds.current();
@@ -2147,14 +2176,8 @@ function multipleMint(string[] memory _tokenURIs, uint256 _price, uint256 _amoun
         _safeMint(_msgSender(),newId);
         _setTokenURI(newId, _tokenURIs[i]);
         haveListed[newId]=false;
-        price[newId] = _price;
         }
-               
         return _nftId;
-    
-    
-    
-    
 }
     /**
      * @dev Set a unique name for each nftId. It is supposed to be called once.
@@ -2175,28 +2198,37 @@ function multipleMint(string[] memory _tokenURIs, uint256 _price, uint256 _amoun
         feePercent = _feePercent;
     }
 
-// Selling without auction
-    function justSell(uint256 _tokenId,uint256 numberOfCopy) external _validateTokenOwner(_tokenId){
-        require(haveListed[_tokenId]!=true,"It is already listed");
-        require(nftCount[nftIds[_tokenId]]>=numberOfCopy,"You dont have enough copy");
-        haveListed[_tokenId]=true;
+// Selling without auction can sell multiple copy at once and can even sell any nonrelated nft's at the same time too.
+
+    function justSell(uint256[] memory _tokenIdler,uint256 _numberOfCopy,uint256[] memory prices) external{
+        
+        for(uint256 i=0;i<_numberOfCopy;i++){
+        require(haveListed[_tokenIdler[i]]!=true,"It is already listed");
+
+        require(_msgSender()==ownerOf(_tokenIdler[i]),"You are not the owner of some or all of this tokens.");    
+        require(_exists(_tokenIdler[i]), "Error,tokenId does not exist");
+         
+         price[_tokenIdler[i]]=prices[i];
+         
+         haveListed[_tokenIdler[i]]=true;
+        }
+       
 
     }
 
     
-    /**
-     * @dev Buy nft and give fee to feeaddress
-     
+    // This function is for buying from justSell option
       function buy(uint256 _tokenId) external payable _validateBuyer(_tokenId) {
+          require(onAuction[_tokenId]==false,"You can't buy. This token is on Auction.");
           address _sellerman=ownerOf(_tokenId);
           address _buyerman=_msgSender();
           
-          _trade(_tokenId);
+          _justTrade(_tokenId);
           
-          emit Purchased(_sellerman,_buyerman,price[_tokenId],_tokenId,tokenURI(_tokenId));
+          emit JustPurchased(_sellerman,_buyerman,price[_tokenId],_tokenId,tokenURI(_tokenId));
       }
-     */ 
-      
+     
+     // Increasing the price of auctioned nft
      function increaseBid(uint256 _tokenId, uint256 _price) internal returns(uint256){
        
         uint256 oldPrice = price[_tokenId];
@@ -2212,70 +2244,111 @@ function multipleMint(string[] memory _tokenURIs, uint256 _price, uint256 _amoun
         uint256 oldPrice=increaseBid(_tokenId, _price);
     emit PriceUpdated(_msgSender(), oldPrice, _price, _tokenId);
     }
-    
-    function cancelAuction(uint256 _tokenId) external {
-        require(_exists(_tokenId), "Error, wrong tokenId");
-        require(_msgSender() == ownerOf(_tokenId), "Only Owner Can change the status");
-        
-        haveListed[_tokenId] = false;
 
+// Only owner of token can use this function    
+    function cancelAuction(uint256 _tokenId) external _validateTokenOwner(_tokenId) {
+        require(bidders[_tokenId]==address(0),"You can't cancel when you have bidders");
+        require(onAuction[_tokenId],"This token is not on an auction");
+
+        haveListed[_tokenId] = false;
+        onAuction[_tokenId]=false;
+        
         emit NftListStatus(_msgSender(), _tokenId, false);
     }
 
-    function createAuction(uint256 _tokenId, uint8 _minBidIncreasePercent) external _validateTokenOwner(_tokenId){
+    function createAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent) external _validateTokenOwner(_tokenId){
             minBidIncrease[_tokenId]=_minBidIncreasePercent;
             haveListed[_tokenId]=true;
-
-
+            onAuction[_tokenId]=true;
+            
+            price[_tokenId]=_price;
+            
+        emit AuctionStarted(_msgSender(),_tokenId,price[_tokenId],_minBidIncreasePercent);
 
 
     }
     
-    function makeOffer(uint256 _tokenId, uint256 _offer) external payable _validateBuyer(_tokenId) returns(address){
-        require(_exists(_tokenId), "Error, wrong tokenId");
-        require(haveListed[_tokenId], "Item not listed currently");
-        require(_msgSender() != ownerOf(_tokenId), "Can not buy what you own");
-        require(_offer>price[_tokenId]+price[_tokenId]*minBidIncrease[_tokenId]/100);
-    
-        prevBidder=bidders[_tokenId];
+    function makeOffer(uint256 _tokenId, uint256 _offer) external payable _validateOfferer(_tokenId,_offer) {
+       
+    require(msg.value >= _offer, "Sent ETH Value does not match specified bid amount");
+
+        address payable prevBidder=payable(bidders[_tokenId]);
+ 
         bidders[_tokenId]=_msgSender();
+ 
         if(prevBidder!=address(0)){
-        IWETH(wbnb).withdraw(price[_tokenId]);                        
-        
-        }
-        IWETH(wbnb).deposit{value: _offer}();
 
-        
-        
-        
-        
-        increaseBid(_tokenId,_offer);
+        IERC20(wbnb).safeTransfer(prevBidder,price[_tokenId]);  
 
-
+         }
+       
+       IWETH(wbnb).deposit{value: _offer}();
+        
+         increaseBid(_tokenId,_offer);
+        if(msg.value>_offer){
+            payable(bidders[_tokenId]).transfer(msg.value - _offer);
+        }    
+        
+    emit MadeOffer(_msgSender(),_tokenId,_offer);
     }
-    
-    
-     function _trade(uint _id) internal {
-         
-        address payable _buyer = payable(_msgSender());
-        address payable _owner = payable(ownerOf(_id));
 
-        _transfer(_owner, _buyer, _id);
+
+    function acceptOffer(uint256 _id) external  _validateTokenOwner(_id){
+        require(onAuction[_id],"This token is not on an Auction");
+
+        onAuction[_id]=false;
+        address _lastBidder=bidders[_id];
+        _trade(_id);
+    address payable _owner = payable(ownerOf(_id));
+
+   emit AuctionEnded(_owner,_lastBidder,price[_id],_id,tokenURI(_id));
+    
+    
+    }
+
+
+
+function _justTrade(uint256 _id) internal {
+         
+        address payable _owner = payable(ownerOf(_id));
+        address payable _buyer=payable(_msgSender());
+        _transfer(_owner,_buyer, _id);
 
         // Fee Cut
-        uint _commissionValue = price[_id] * feePercent / 100 ;
-        uint _sellerValue = price[_id] - _commissionValue;
-        require(msg.value == price[_id], "Sent ETH Value does not match specified bid amount");
-        IWETH(wbnb).deposit{value: price[_id]}();
-        // _owner.transfer(_sellerValue);
-        // payable(feeAddress).transfer(_commissionValue);
+       uint256 _commissionValue = price[_id].mul(feePercent).div(100);
+        uint256 _sellerValue = price[_id] - _commissionValue;
+      
+     
 
-        // If buyer sent more than price, we send them back their rest of funds
-      //  if (msg.value > price[_id]) {
-        //    _buyer.transfer(msg.value - price[_id]);
-       // }
+         _owner.transfer(_sellerValue);
+         payable(feeAddress).transfer(_commissionValue);
+
+    // If buyer sent more than price, we send them back their rest of funds
+        if (msg.value > price[_id]) {
+            _buyer.transfer(msg.value - price[_id]);
+        }
 
         haveListed[_id] = false;
+    }
+
+    
+     function _trade(uint256 _id) internal {
+         
+        address payable _owner = payable(ownerOf(_id));
+
+        _transfer(_owner,payable(bidders[_id]), _id);
+
+        // Fee Cut
+       uint256 _commissionValue = price[_id].mul(feePercent).div(100);
+        uint256 _sellerValue = price[_id] - _commissionValue;
+      
+       IERC20(wbnb).safeTransfer(payable(_msgSender()),_sellerValue);               
+       IERC20(wbnb).safeTransfer(payable(feeAddress),_commissionValue);
+        bidders[_id]=address(0);
+       
+
+        haveListed[_id] = false;
+
     }
 
      
@@ -2287,10 +2360,12 @@ function multipleMint(string[] memory _tokenURIs, uint256 _price, uint256 _amoun
     function burn(uint256 _tokenId) external {
         require(_exists(_tokenId), "Error, wrong tokenId");
         require(_msgSender() == ownerOf(_tokenId), "Only Owner Can Burn");
-    
+        require(haveListed[_tokenId]==false," Remove token from listing");
+
         uint256 nftIdBurnt = nftIds[_tokenId];
         nftCount[nftIdBurnt] = nftCount[nftIdBurnt].sub(1);
         nftBurnCount[nftIdBurnt] = nftBurnCount[nftIdBurnt].add(1);
         _burn(_tokenId);
     }
+
 }
