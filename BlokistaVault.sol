@@ -2007,7 +2007,7 @@ pragma solidity ^0.6.8;
 
 
 
-contract BlokistaNFT is ERC721, Ownable {
+contract BlokistaVault is ERC721, Ownable {
     using Counters for Counters.Counter;
     using Address for address;
    using SafeERC20 for IERC20;
@@ -2016,25 +2016,27 @@ contract BlokistaNFT is ERC721, Ownable {
     address public wbnb;
     address public adminFeeAddress;
     uint256 public feePercent = 10;
-
+    mapping(address => bool) private contractForAccess;
 // fee's of tokenId's
-    mapping(uint256 => uint8) public loyaltyFee;
+    mapping(uint256 => uint8) private loyaltyFee;
 
-    mapping(uint256=> address) public creatorArtist; 
+    
+
+    mapping(uint256=> address) private creatorArtist; 
     // minBidIncrease for every tokenId
-    mapping(uint256 => uint8) public minBidIncrease;
+    mapping(uint256 => uint8) private minBidIncrease;
     // Listed nft's for checking a tokenId if it is listed or not
-    mapping(uint256 => bool) public haveListed;
+    mapping(uint256 => bool) private haveListed;
         
-     mapping(uint256 => uint256) public price;
+     mapping(uint256 => uint256) private price;
     // Map the number of tokens per nftId
-    mapping(uint256 => uint256) public nftCount;
+    mapping(uint256 => uint256) private nftCount;
 
     // Map the number of tokens burnt per nftId
-    mapping(uint256 => uint256) public nftBurnCount;
+    mapping(uint256 => uint256) private nftBurnCount;
 
     // in auction?
-    mapping(uint256 => bool) public onAuction;
+    mapping(uint256 => bool) private onAuction;
     // Used for generating the tokenId of new NFT minted
     Counters.Counter private _tokenIds;
 
@@ -2055,8 +2057,14 @@ contract BlokistaNFT is ERC721, Ownable {
     event AuctionStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent);
     event MadeOffer(address indexed owner, uint256 tokenID, uint256 price);
 
-modifier _validateTokenOwner(uint256 _tokenId){
-    require(_msgSender()==ownerOf(_tokenId),"This is not the owner");
+
+modifier _hasAccess{
+    require(contractForAccess[_msgSender()],"This contract does not have access");
+    _;
+}
+
+modifier _validateTokenOwner(uint256 _tokenId,address _sender){
+    require(_sender==ownerOf(_tokenId),"This is not the owner");
      require(_exists(_tokenId), "Error,tokenId does not exist");
     _;
 
@@ -2103,22 +2111,64 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
        } 
        
     }
+    function getCreatorArtist(uint256 _id) external view returns(address){
+        return creatorArtist[_id];
+    }
+    function setCreatorArtist(uint256 _id,address _adres) external _hasAccess{
+        creatorArtist[_id]=_adres;
+
+    }
+    function getminBidIncrease(uint256 _id)external view returns(uint8) {
+        return minBidIncrease[_id];
+
+    }
+    function getContractForAccess(address _conthash) external view returns(bool){
+        return contractForAccess[_conthash];
+    }
+    function setContractForAccess(address _conthash,bool status)internal{
+
+        contractForAccess[_conthash]=status;
+    }
+
+    function setHaveListed(uint256 _id,bool status) internal {
+
+        haveListed[_id]=status;
+    }
+    function setOnAuction(uint256 _id,bool status) internal {
+        onAuction[_id]=status;
+    }
     function getBidders(uint256 _id)external view returns(address){
 
         return bidders[_id];
     }
-  
+  function setBidders(uint256 _id,address _bidder)internal {
+      bidders[_id]=_bidder;
+  }
 function getPrice(uint256 _id)external view returns(uint256){
 
         return price[_id];
     }
-  
+  function setPrice(uint256 _id,uint256 _newprice,address _sender) internal _validateTokenOwner(_id,_sender){
+
+      price[_id]=_newprice;
+  }
     /**
      * @dev Get nftId for a specific tokenId.
      */
     function getNftId(uint256 _tokenId) external view returns (uint256) {
         return nftIds[_tokenId];
     }
+    function setNftId(uint256 _Id,uint256 _nftId,address _sender) internal _validateTokenOwner(_Id,_sender){
+
+        nftIds[_Id]=_nftId;
+    }
+    function getloyaltyFee(uint256 _id) external view returns(uint8){
+        return loyaltyFee[_id];
+    }
+    function setloyaltyFee(uint256 _id, uint8 _fee)internal {
+        loyaltyFee[_id]=_fee;
+    }
+
 
     /**
      * @dev Get the associated nftName for a specific nftId.
@@ -2130,6 +2180,7 @@ function getPrice(uint256 _id)external view returns(uint256){
     {
         return nftNames[_nftId];
     }
+    
 
     /**
      * @dev Get the associated nftName for a unique tokenId.
@@ -2196,7 +2247,7 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
      * @dev Set a unique name for each nftId. It is supposed to be called once.
      */
     function setNftName(uint256 _nftId, string memory _name)
-        external _validateTokenOwner(_nftId)
+        external _validateTokenOwner(_nftId,_msgSender())
         
     {
          require(_exists(_nftId), "Error, wrong nftId");
@@ -2211,180 +2262,6 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
         feePercent = _feePercent;
     }
 
-// Selling without auction can sell multiple copy at once and can even sell any nonrelated nft's at the same time too.
-
-    function justSell(uint256[] memory _tokenIdler,uint256 _numberOfCopy,uint256[] memory prices) external{
-        
-        for(uint256 i=0;i<_numberOfCopy;i++){
-        require(haveListed[_tokenIdler[i]]!=true,"It is already listed");
-
-        require(_msgSender()==ownerOf(_tokenIdler[i]),"You are not the owner of some or all of this tokens.");    
-        require(_exists(_tokenIdler[i]), "Error,tokenId does not exist");
-         
-         price[_tokenIdler[i]]=prices[i];
-         
-         haveListed[_tokenIdler[i]]=true;
-        }
-       
-
-    }
 
     
-    // This function is for buying from justSell option
-      function buy(uint256 _tokenId) external payable _validateBuyer(_tokenId) {
-          require(onAuction[_tokenId]==false,"You can't buy. This token is on Auction.");
-          address _sellerman=ownerOf(_tokenId);
-          address _buyerman=_msgSender();
-           haveListed[_tokenId] = false;
-          _justTrade(_tokenId);
-          
-          emit JustPurchased(_sellerman,_buyerman,price[_tokenId],_tokenId,tokenURI(_tokenId));
-      }
-     
-     // Increasing the price of auctioned nft
-     function increaseBid(uint256 _tokenId, uint256 _price) internal returns(uint256){
-       
-        uint256 oldPrice = price[_tokenId];
-        price[_tokenId] = _price;
-
-        return oldPrice;
-    }
-
-    function updatePriceAsOwner(uint256 _tokenId, uint256 _price) external{
-        require(_exists(_tokenId), "Error, wrong tokenId");
-        require(_msgSender() == ownerOf(_tokenId), "Only Owner Can Update the price");
-        
-        uint256 oldPrice=increaseBid(_tokenId, _price);
-    emit PriceUpdated(_msgSender(), oldPrice, _price, _tokenId);
-    }
-
-// Only owner of token can use this function    
-    function cancelAuction(uint256 _tokenId) external _validateTokenOwner(_tokenId) {
-        require(bidders[_tokenId]==address(0),"You can't cancel when you have bidders");
-        require(onAuction[_tokenId],"This token is not on an auction");
-
-        haveListed[_tokenId] = false;
-        onAuction[_tokenId]=false;
-        
-        emit NftListStatus(_msgSender(), _tokenId, false);
-    }
-
-    function createAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent) external _validateTokenOwner(_tokenId){
-            minBidIncrease[_tokenId]=_minBidIncreasePercent;
-            haveListed[_tokenId]=true;
-            onAuction[_tokenId]=true;
-            
-            price[_tokenId]=_price;
-            
-        emit AuctionStarted(_msgSender(),_tokenId,price[_tokenId],_minBidIncreasePercent);
-
-
-    }
-    
-    function makeOffer(uint256 _tokenId, uint256 _offer) external payable _validateOfferer(_tokenId,_offer) {
-       
-    require(msg.value >= _offer, "Sent BNB Value is lower than offer");
-
-        address payable prevBidder=payable(bidders[_tokenId]);
- 
-        bidders[_tokenId]=_msgSender();
- 
-        if(prevBidder!=address(0)){
-
-        IERC20(wbnb).safeTransfer(prevBidder,price[_tokenId]);  
-
-         }
-       
-       IWETH(wbnb).deposit{value: _offer}();
-        
-         increaseBid(_tokenId,_offer);
-        if(msg.value>_offer){
-            payable(bidders[_tokenId]).transfer(msg.value - _offer);
-        }    
-        
-    emit MadeOffer(_msgSender(),_tokenId,_offer);
-    }
-
-
-    function acceptOffer(uint256 _id) external  _validateTokenOwner(_id){
-        require(onAuction[_id],"This token is not on an Auction");
-        haveListed[_id] = false;
-        onAuction[_id]=false;
-        address _lastBidder=bidders[_id];
-        
-        _trade(_id);
-    address payable _owner = payable(ownerOf(_id));
-    
-   emit AuctionEnded(_owner,_lastBidder,price[_id],_id,tokenURI(_id));
-    
-    
-    }
-
-
-
-function _justTrade(uint256 _id) internal {
-         
- 
-        address payable _owner = payable(ownerOf(_id));
-        address payable _buyer=payable(_msgSender());
-        _transfer(_owner,_buyer, _id);
-
-        // Fee Cut
-       uint256 _commissionValue = price[_id].mul(feePercent).div(100);
-       uint256 _loyaltyValue=price[_id].mul(loyaltyFee[_id]).div(100);
-    uint256 _sellerValue = (price[_id].sub(_commissionValue)).sub(_loyaltyValue);
-      
-     
-
-         _owner.transfer(_sellerValue);
-         payable(adminFeeAddress).transfer(_commissionValue);
-        payable(creatorArtist[_id]).transfer(_loyaltyValue);
-    // If buyer sent more than price, we send them back their rest of funds
-        if (msg.value > price[_id]) {
-            _buyer.transfer(msg.value - price[_id]);
-        }
-
-       
-    }
-
-    
-     function _trade(uint256 _id) internal {
-         
-        address payable _owner = payable(ownerOf(_id));
-        address payable _buyer=payable(bidders[_id]);
-        bidders[_id]=address(0);
-        _transfer(_owner,_buyer, _id);
-
-        // Fee Cut
-       uint256 _commissionValue = price[_id].mul(feePercent).div(100);
-       uint256 _loyaltyValue=price[_id].mul(loyaltyFee[_id]).div(100);
-    uint256 _sellerValue = (price[_id].sub(_commissionValue)).sub(_loyaltyValue);
-      
-       IERC20(wbnb).safeTransfer(payable(_msgSender()),_sellerValue);               
-       IERC20(wbnb).safeTransfer(payable(adminFeeAddress),_commissionValue);
-        IERC20(wbnb).safeTransfer(payable(creatorArtist[_id]),_loyaltyValue);
-        
-       
-
-        
-
-    }
-
-     
-    /**
-     
-     
-     * @dev Burn a NFT token. Callable by owner only.
-     */
-    function burn(uint256 _tokenId) external {
-        require(_exists(_tokenId), "Error, wrong tokenId");
-        require(_msgSender() == ownerOf(_tokenId), "Only Owner Can Burn");
-        require(haveListed[_tokenId]==false," Remove token from listing");
-
-        uint256 nftIdBurnt = nftIds[_tokenId];
-        nftCount[nftIdBurnt] = nftCount[nftIdBurnt].sub(1);
-        nftBurnCount[nftIdBurnt] = nftBurnCount[nftIdBurnt].add(1);
-        _burn(_tokenId);
-    }
-
 }

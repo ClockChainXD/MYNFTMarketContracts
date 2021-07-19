@@ -2011,8 +2011,8 @@ contract BlokistaNFT is ERC721, Ownable {
     using Counters for Counters.Counter;
     using Address for address;
    using SafeERC20 for IERC20;
-
-     
+    
+    address public BlokistaVault;
     address public wbnb;
     address public adminFeeAddress;
     uint256 public feePercent = 10;
@@ -2076,10 +2076,11 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
         require(onAuction[_tokenId],"This token is not on auction");
         _;
 }
-    constructor(string memory _baseURI, address _wbnb) public ERC721("Blokista", "BLOKISTA") {
+    constructor(string memory _baseURI, address _wbnb, address _vault) public ERC721("Blokista", "BLOKISTA") {
         _setBaseURI(_baseURI);
         adminFeeAddress=_msgSender();
         wbnb=_wbnb;
+        BlokistaVault=_vault;
     }
    
     /*
@@ -2087,129 +2088,9 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
     * 1=On Auction
     * 2=On justSell
     */
-    function getStatus(uint256 _id) external view returns (uint8){
-        if(haveListed[_id])
-        { 
-            if(onAuction[_id]){
-                return 1;
-            }
-            else
-            {
-            return 2;
-            }
-        }        
-       else{
-            return 0; 
-       } 
-       
-    }
-    function getBidders(uint256 _id)external view returns(address){
-
-        return bidders[_id];
-    }
-  
-function getPrice(uint256 _id)external view returns(uint256){
-
-        return price[_id];
-    }
-  
-    /**
-     * @dev Get nftId for a specific tokenId.
-     */
-    function getNftId(uint256 _tokenId) external view returns (uint256) {
-        return nftIds[_tokenId];
-    }
-
-    /**
-     * @dev Get the associated nftName for a specific nftId.
-     */
-    function getNftName(uint256 _nftId)
-        external
-        view
-        returns (string memory)
-    {
-        return nftNames[_nftId];
-    }
-
-    /**
-     * @dev Get the associated nftName for a unique tokenId.
-     */
-    function getNftNameOfTokenId(uint256 _tokenId)
-        external
-        view
-        returns (string memory)
-    {
-        uint256 nftId = nftIds[_tokenId];
-        return nftNames[nftId];
-    }
+ 
+ 
     
-    
-
-    /**
-     * @dev Mint NFTs. Only the owner can call it.
-     */
-    function mint(
-        string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
-     external returns (uint256) {
-         
-         uint256 _nftId=_nftIdCount.current();
-        nftNames[_nftId] = _name;
-        
-         _nftIdCount.increment();
-    
-        
-        
-        uint256 newId = _tokenIds.current();
-        _tokenIds.increment();
-        
-        nftIds[newId] = _nftId;
-        nftCount[_nftId] = nftCount[_nftId].add(1);
-        _safeMint(_msgSender(),newId);
-        _setTokenURI(newId, _tokenURI);
-        loyaltyFee[newId]=_loyaltyfee;
-        haveListed[newId]=false;
-        creatorArtist[newId]=_msgSender();     
-        return newId;
-    }
-    
-function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external returns (uint256){
-    
-    uint256 _nftId=_nftIdCount.current();
-        
-         _nftIdCount.increment();
-    nftNames[_nftId] = _name;
-        for(uint256 i=0;i<_amountOfToken;i++){
-        
-        uint256 newId = _tokenIds.current();
-        _tokenIds.increment();
-        
-        nftIds[newId] = _nftId;
-        nftCount[_nftId] = nftCount[_nftId].add(1);
-        _safeMint(_msgSender(),newId);
-        _setTokenURI(newId, _tokenURIs[i]);
-        haveListed[newId]=false;
-        loyaltyFee[newId]=_loyaltyfee;
-        }
-        return _nftId;
-}
-    /**
-     * @dev Set a unique name for each nftId. It is supposed to be called once.
-     */
-    function setNftName(uint256 _nftId, string memory _name)
-        external _validateTokenOwner(_nftId)
-        
-    {
-         require(_exists(_nftId), "Error, wrong nftId");
-        require(_msgSender() == ownerOf(_nftId), "Only Owner Can set the name");
-        
-        nftNames[_nftId] = _name;
-    }
-    
-    
-     function setFee(address _feeAddress, uint256 _feePercent) external onlyOwner {
-        adminFeeAddress = _feeAddress;
-        feePercent = _feePercent;
-    }
 
 // Selling without auction can sell multiple copy at once and can even sell any nonrelated nft's at the same time too.
 
@@ -2240,6 +2121,7 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
           
           emit JustPurchased(_sellerman,_buyerman,price[_tokenId],_tokenId,tokenURI(_tokenId));
       }
+    
      
      // Increasing the price of auctioned nft
      function increaseBid(uint256 _tokenId, uint256 _price) internal returns(uint256){
