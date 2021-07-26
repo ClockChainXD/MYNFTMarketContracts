@@ -1998,7 +1998,53 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
     function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal virtual { }
 }
 
+interface IBlokistaVault{
+function validateTokenOwner(uint256 _tokenId,address _sender)external view  returns(bool);
+function validateBuyer(uint256 _tokenId,address _sender)external view returns(bool);
+function validateOfferer(uint256 _tokenId,uint256 _offer,address _sender)external view  returns(bool);
 
+
+function getFeePercent()external view returns(uint8);
+function getDeadline(uint256 _id) external view returns(uint256);
+function setDeadline(uint256 _id, uint256 _dl) external;
+function getStatus(uint256 _id) external view returns (uint8);
+function getCreatorArtist(uint256 _id) external view returns(address);
+function setCreatorArtist(uint256 _id,address _adres) external;
+function getminBidIncrease(uint256 _id)external view returns(uint8);
+function setMinBidIncrease(uint256 _id,uint8 _minbid)external;
+function getContractForAccess(address _conthash) external view returns(bool);
+function setContractForAccess(address _conthash,bool status)external;
+function setHaveListed(uint256 _id,bool status) external;
+function setOnAuction(uint256 _id,bool status) external;
+function getBidders(uint256 _id)external view returns(address);
+function setBidders(uint256 _id,address _bidder)external;
+function getPrice(uint256 _id)external view returns(uint256);
+function setPrice(uint256 _id,uint256 _newprice) external;
+function getNftId(uint256 _tokenId) external view returns (uint256);
+
+function getloyaltyFee(uint256 _id) external view returns(uint8);
+ function getNftName(uint256 _nftId)
+        external
+        view
+        returns (string memory);
+function getNftNameOfTokenId(uint256 _tokenId)
+        external
+        view
+        returns (string memory);
+
+
+function setNftName(uint256 _nftId, string memory _name)
+        external;
+    function setFee(address _feeAddress, uint8 _feePercent) external;
+    function getNftCount(uint256 _nftId) external view returns(uint256);
+    function setNftCount(uint256 _tokenId, uint256 _count) external;
+    function getNftBurntCount(uint256 _tokenId) external view returns(uint256);
+    function setNftBurntCount(uint256 _tokenId, uint256 _count) external;
+    function setStatus(uint256 _id,uint8 status) external;
+
+    function justTransfer(address from,address to,uint256 _id) external;
+    function justBurn(uint256 _id)external;
+}
 
 
 pragma experimental ABIEncoderV2;
@@ -2007,19 +2053,20 @@ pragma solidity ^0.6.8;
 
 
 
-contract BlokistaVault is ERC721, Ownable {
+contract BlokistaVault is ERC721, Ownable, IBlokistaVault {
     using Counters for Counters.Counter;
     using Address for address;
    using SafeERC20 for IERC20;
 
      
-    address public wbnb;
     address public adminFeeAddress;
-    uint256 public feePercent = 10;
+    uint8 public feePercent = 10;
     mapping(address => bool) private contractForAccess;
 // fee's of tokenId's
     mapping(uint256 => uint8) private loyaltyFee;
 
+//deadline respect to tokenId
+    mapping(uint256 => uint256) private deadlines;
     
 
     mapping(uint256=> address) private creatorArtist; 
@@ -2050,52 +2097,82 @@ contract BlokistaVault is ERC721, Ownable {
     mapping(uint256 => address) private  bidders;
 
 
-    event JustPurchased(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri );
-    event NftListStatus(address indexed owner, uint256 nftID, bool listedOrNot);
-    event AuctionEnded(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri);
-    event PriceUpdated(address indexed owner, uint256 oldPrice, uint256 newPrice, uint256 tokenID);
-    event AuctionStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent);
-    event MadeOffer(address indexed owner, uint256 tokenID, uint256 price);
+    
 
-
-modifier _hasAccess{
+modifier _hasAccess {
     require(contractForAccess[_msgSender()],"This contract does not have access");
     _;
 }
 
-modifier _validateTokenOwner(uint256 _tokenId,address _sender){
+modifier _validateTokenOwner(uint256 _tokenId,address _sender) {
     require(_sender==ownerOf(_tokenId),"This is not the owner");
      require(_exists(_tokenId), "Error,tokenId does not exist");
     _;
 
 }
 
-modifier _validateBuyer(uint256 _tokenId) {
+modifier _validateBuyer(uint256 _tokenId,address _sender)  {
         require(_exists(_tokenId), "Error, wrong tokenId");
         require(haveListed[_tokenId], "Item not listed currently");
-       require(msg.value >= price[_tokenId], "Error, the amount is lower");
-        require(_msgSender() != ownerOf(_tokenId), "Can not buy what you own");
+        require(_sender != ownerOf(_tokenId), "Can not buy what you own");
         _;
     }
-modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
+modifier _validateOfferer(uint256 _tokenId,uint256 _offer,address _sender) {
         require(_exists(_tokenId), "Error, wrong tokenId");
-        require(_msgSender() != ownerOf(_tokenId), "Can not buy what you own");
-        require(_offer>price[_tokenId]+price[_tokenId]*minBidIncrease[_tokenId]/100,"This bid is lower then");
+        require(_sender != ownerOf(_tokenId), "Can not buy what you own");
+        require(_offer>price[_tokenId]+price[_tokenId]*minBidIncrease[_tokenId]/100,"This offer is lower than minimum offer value, (maybe someone offered a bigger price just before you) ");
         require(onAuction[_tokenId],"This token is not on auction");
         _;
 }
-    constructor(string memory _baseURI, address _wbnb) public ERC721("Blokista", "BLOKISTA") {
+    constructor(string memory _baseURI) public ERC721("Blokista", "BLOKISTA") {
         _setBaseURI(_baseURI);
         adminFeeAddress=_msgSender();
-        wbnb=_wbnb;
+        
     }
    
+   function validateTokenOwner(uint256 _tokenId,address _sender)external view override _validateTokenOwner(_tokenId,_sender) returns(bool){
+    
+    return true;
+
+}
+ function validateBuyer(uint256 _tokenId,address _sender)external view override _validateBuyer(_tokenId,_sender) returns(bool){
+    
+    return true;
+
+}
+function validateOfferer(uint256 _tokenId,uint256 _offer,address _sender)external view override _validateOfferer(_tokenId,_offer,_sender) returns(bool){
+    
+    return true;
+
+}
+function justTransfer(address from,address to,uint256 _id) external override{
+    _transfer(from,to,_id);
+}
+
+function justBurn(uint256 _id)external override{
+    _burn(_id);
+}
+
+function getDeadline(uint256 _id) external view override returns(uint256){
+    return deadlines[_id];
+
+}
+function setDeadline(uint256 _id, uint256 _dl) external override{
+
+    deadlines[_id]=_dl;
+
+}
+
+
+
+
     /*
     * 0=Not on Sale Nor On Auction   
     * 1=On Auction
     * 2=On justSell
     */
-    function getStatus(uint256 _id) external view returns (uint8){
+
+    function getStatus(uint256 _id) external view override returns (uint8){
         if(haveListed[_id])
         { 
             if(onAuction[_id]){
@@ -2111,63 +2188,85 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
        } 
        
     }
-    function getCreatorArtist(uint256 _id) external view returns(address){
+    function setStatus(uint256 _id,uint8 status) external override _hasAccess{
+        if(status==0){
+            if(onAuction[_id]!=false){
+                
+                onAuction[_id]=false;
+            }
+            haveListed[_id]=false;
+            
+            
+            }
+            else if(status==1){
+            
+            haveListed[_id]=true;
+            onAuction[_id]=true;
+            
+            }
+            else if(status==2){
+            
+            haveListed[_id]=true;
+            
+            
+            }
+    }
+    function getCreatorArtist(uint256 _id) external view override returns(address){
         return creatorArtist[_id];
     }
-    function setCreatorArtist(uint256 _id,address _adres) external _hasAccess{
+    function setCreatorArtist(uint256 _id,address _adres) external override _hasAccess{
         creatorArtist[_id]=_adres;
 
     }
-    function getminBidIncrease(uint256 _id)external view returns(uint8) {
+    function getminBidIncrease(uint256 _id)external view override returns(uint8) {
         return minBidIncrease[_id];
 
     }
-    function getContractForAccess(address _conthash) external view returns(bool){
+    function setMinBidIncrease(uint256 _id,uint8 _minbid)external override _hasAccess{
+        minBidIncrease[_id]=_minbid;
+
+    }
+    function getContractForAccess(address _conthash) external view override returns(bool){
         return contractForAccess[_conthash];
     }
-    function setContractForAccess(address _conthash,bool status)internal{
+    function setContractForAccess(address _conthash,bool status)external override onlyOwner{
 
         contractForAccess[_conthash]=status;
     }
 
-    function setHaveListed(uint256 _id,bool status) internal {
+    function setHaveListed(uint256 _id,bool status) external override _hasAccess {
 
         haveListed[_id]=status;
     }
-    function setOnAuction(uint256 _id,bool status) internal {
+    function setOnAuction(uint256 _id,bool status) external override _hasAccess {
         onAuction[_id]=status;
     }
-    function getBidders(uint256 _id)external view returns(address){
+    function getBidders(uint256 _id)external view override returns(address){
 
         return bidders[_id];
     }
-  function setBidders(uint256 _id,address _bidder)internal {
+  function setBidders(uint256 _id,address _bidder)external override _hasAccess {
       bidders[_id]=_bidder;
   }
-function getPrice(uint256 _id)external view returns(uint256){
+function getPrice(uint256 _id)external view override returns(uint256){
 
         return price[_id];
     }
-  function setPrice(uint256 _id,uint256 _newprice,address _sender) internal _validateTokenOwner(_id,_sender){
+  function setPrice(uint256 _id,uint256 _newprice) external override _hasAccess{
 
       price[_id]=_newprice;
   }
     /**
      * @dev Get nftId for a specific tokenId.
      */
-    function getNftId(uint256 _tokenId) external view returns (uint256) {
+    function getNftId(uint256 _tokenId) external view override returns (uint256) {
         return nftIds[_tokenId];
     }
-    function setNftId(uint256 _Id,uint256 _nftId,address _sender) internal _validateTokenOwner(_Id,_sender){
-
-        nftIds[_Id]=_nftId;
-    }
-    function getloyaltyFee(uint256 _id) external view returns(uint8){
+    
+    function getloyaltyFee(uint256 _id) external view override returns(uint8){
         return loyaltyFee[_id];
     }
-    function setloyaltyFee(uint256 _id, uint8 _fee)internal {
-        loyaltyFee[_id]=_fee;
-    }
+    
 
 
     /**
@@ -2175,7 +2274,7 @@ function getPrice(uint256 _id)external view returns(uint256){
      */
     function getNftName(uint256 _nftId)
         external
-        view
+        view override
         returns (string memory)
     {
         return nftNames[_nftId];
@@ -2187,21 +2286,37 @@ function getPrice(uint256 _id)external view returns(uint256){
      */
     function getNftNameOfTokenId(uint256 _tokenId)
         external
-        view
+        view override
         returns (string memory)
     {
         uint256 nftId = nftIds[_tokenId];
         return nftNames[nftId];
     }
     
-    
+    function getNftCount(uint256 _tokenId) external view override returns(uint256){
+        return nftCount[_tokenId];
+    }
 
+    function setNftCount(uint256 _tokenId, uint256 _count) external override _hasAccess{
+        nftCount[_tokenId]=_count;
+    }
+
+
+    function getNftBurntCount(uint256 _tokenId)external view override returns(uint256){
+        return nftBurnCount[_tokenId];
+
+    }
+    function setNftBurntCount(uint256 _tokenId,uint256 _count)external override _hasAccess{
+        nftBurnCount[_tokenId]=_count;
+    }
+    
+    
     /**
      * @dev Mint NFTs. Only the owner can call it.
      */
     function mint(
         string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
-     external returns (uint256) {
+     external  returns (uint256) {
          
          uint256 _nftId=_nftIdCount.current();
         nftNames[_nftId] = _name;
@@ -2223,7 +2338,7 @@ function getPrice(uint256 _id)external view returns(uint256){
         return newId;
     }
     
-function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external returns (uint256){
+function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external  returns (uint256){
     
     uint256 _nftId=_nftIdCount.current();
         
@@ -2247,7 +2362,7 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
      * @dev Set a unique name for each nftId. It is supposed to be called once.
      */
     function setNftName(uint256 _nftId, string memory _name)
-        external _validateTokenOwner(_nftId,_msgSender())
+        external override _validateTokenOwner(_nftId,_msgSender())
         
     {
          require(_exists(_nftId), "Error, wrong nftId");
@@ -2255,9 +2370,11 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
         
         nftNames[_nftId] = _name;
     }
+    function getFeePercent() external view override returns(uint8){
+        return feePercent;
+    }
     
-    
-     function setFee(address _feeAddress, uint256 _feePercent) external onlyOwner {
+     function setFee(address _feeAddress, uint8 _feePercent) external  override onlyOwner {
         adminFeeAddress = _feeAddress;
         feePercent = _feePercent;
     }
