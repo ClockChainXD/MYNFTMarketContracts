@@ -1702,7 +1702,7 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
 // Only owner of token can use this function    
     function cancelAuction(uint256 _tokenId) external _validateTokenOwner(_tokenId) {
         require(IBlokistaVault(BlokistaVault).getBidders(_tokenId)==address(0),"You can't cancel when you have bidders");
-        require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)==1,"This token is not on an auction");
+        require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)>0,"This token is not on an auction or on sale");
 
         IBlokistaVault(BlokistaVault).setStatus(_tokenId,0);
        
@@ -1724,7 +1724,7 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
 
 
     }
-    //Time respect to days for auction if you want hours than for example: use 1/24 for parameter _deadline to represent an hour 
+    //Time respect to seconds
     function createDeadlineAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent, uint256 _deadline) external _validateTokenOwner(_tokenId) {
         require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)==0,"This item is listed or on auction already");
         require(IBlokistaVault(BlokistaVault).getDeadline(_tokenId)==0,"This item already has a deadline");
@@ -1855,5 +1855,6 @@ function _justTrade(uint256 _id) internal {
        IBlokistaVault(BlokistaVault).setNftBurntCount(nftIdBurnt,_newBCount);
        IBlokistaVault(BlokistaVault).justBurn(_tokenId);
     }
+    
 
 }
