@@ -1560,6 +1560,8 @@ function getBidders(uint256 _id)external view returns(address);
 function setBidders(uint256 _id,address _bidder)external;
 function getPrice(uint256 _id)external view returns(uint256);
 function setPrice(uint256 _id,uint256 _newprice) external;
+function getInstantSellPrice(uint256 _id)external view returns(uint256);
+function setInstantSellPrice(uint256 _id,uint256 _newprice) external;
 function getNftId(uint256 _tokenId) external view returns (uint256);
 function getloyaltyFee(uint256 _id) external view returns(uint8);
  function getNftName(uint256 _nftId)
@@ -1582,6 +1584,10 @@ function setNftName(uint256 _nftId, string memory _name)
     function justTransfer(address from,address to,uint256 _id) external;
     function justBurn(uint256 _id)external;
 
+ function mint(address owner,
+        string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
+     external  returns (uint256);
+     function multipleMint(address owner,string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external   returns (uint256);
 }
 
 
@@ -1607,14 +1613,19 @@ contract BlokistaAuction is Ownable {
 
 
     event JustPurchased(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri );
+    event JustInstantPurchased(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri );
     event NftListStatus(address indexed owner, uint256 nftID, bool listedOrNot);
     event AuctionEnded(address indexed previousOwner, address indexed newOwner, uint256 price, uint256 tokenID, string uri);
     event PriceUpdated(address indexed owner, uint256 oldPrice, uint256 newPrice, uint256 tokenID);
-    event AuctionStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent);
-    event AuctionWithDeadlineStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent, uint256 deadline);
+    event AuctionStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent, uint256 instantBuyPrice);
+    event AuctionWithDeadlineStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent, uint256 deadline, uint256 instantBuyPrice);
     event MadeOffer(address indexed owner, uint256 tokenID, uint256 price);
+    event Mint(address indexed owner, string nftName,uint256 tokenID, string tokenUri, uint8 loyaltyFee, string category, string subcategory );
+     event MultipleMint(address indexed owner, string nftName,uint256 NftID, string[] tokenUris, uint8 loyaltyFee, string category, string subcategory );
+    event JustListedToSell(address indexed owner, uint256 nftID, uint256 tokenId, uint256 price);
+    event Burn(address indexed owner,string name,uint256 nftID,uint256 tokenId);
 
-
+    
 modifier _validateTokenOwner(uint256 _tokenId){
     address _sender=msg.sender;
     require(IBlokistaVault(BlokistaVault).validateTokenOwner(_tokenId,_sender),"Validation failed");
@@ -1647,11 +1658,27 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
     */
  
  
-    function getSomeInfo() external view returns(address){
-        
-       return IBlokistaVault(BlokistaVault).getCreatorArtist(0);
-       
-    }
+    //minttt
+  function _mint(string memory _tokenURI,string memory _name, uint8 _loyaltyfee,string memory category,string memory subcategory)
+     external {
+
+
+        uint256 _val= IBlokistaVault(BlokistaVault).mint(msg.sender,_tokenURI, _name,_loyaltyfee);
+
+        emit Mint(_msgSender(),_name, _val, _tokenURI, _loyaltyfee,  category,  subcategory);
+
+    
+     
+     
+     }
+     function _multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee,string memory category , string memory subcategory) external{
+         address owner=msg.sender;
+         uint256 _nftId= IBlokistaVault(BlokistaVault).multipleMint(owner,_tokenURIs, _name, _amountOfToken,_loyaltyfee);
+
+        emit MultipleMint(owner,_name, _nftId, _tokenURIs, _loyaltyfee,  category,  subcategory);
+
+
+     }
 
 // Selling without auction can sell multiple copy at once and can even sell any nonrelated nft's at the same time too.
 
@@ -1664,24 +1691,42 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
          IBlokistaVault(BlokistaVault).setPrice(_tokenIdler[i],prices[i]);
          
         IBlokistaVault(BlokistaVault).setStatus(_tokenIdler[i], 2);
+        uint256 _nftId=IBlokistaVault(BlokistaVault).getNftId(_tokenIdler[i]);
+
+        emit JustListedToSell(_msgSender(), _nftId,_tokenIdler[i], prices[i]);
         }
        
 
     }
 
     
-    // This function is for buying from justSell option
+    // This function is for buying from justSell option or instant buyer!
       function buy(uint256 _tokenId) external payable _validateBuyer(_tokenId) {
-          require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)==2,"You can't buy. This token is on Auction.");
+          require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)==2 || (IBlokistaVault(BlokistaVault).getInstantSellPrice(_tokenId)>0 && IBlokistaVault(BlokistaVault).getStatus(_tokenId)==1 ) ,"You can't buy. This token is on Auction.");
           address _sellerman=IERC721(BlokistaVault).ownerOf(_tokenId);
           address _buyerman=_msgSender();
+          uint256 instPrice=IBlokistaVault(BlokistaVault).getInstantSellPrice(_tokenId);
+          uint256 nprice=IBlokistaVault(BlokistaVault).getPrice(_tokenId);
            IBlokistaVault(BlokistaVault).setStatus(_tokenId,0);
           _justTrade(_tokenId);
-          
+          if(instPrice>0){
+                      address payable prevBidder=payable(IBlokistaVault(BlokistaVault).getBidders(_tokenId));
+                    if(prevBidder!=address(0)){
+
+                        IERC20(wbnb).safeTransfer(prevBidder,nprice);  
+
+                        }
+                IBlokistaVault(BlokistaVault).setInstantSellPrice(_tokenId,0);
+                 IBlokistaVault(BlokistaVault).setBidders(_tokenId,address(0));
+              emit JustInstantPurchased(_sellerman,_buyerman,instPrice,_tokenId,IERC721Metadata(BlokistaVault).tokenURI(_tokenId));
+
+          }
+          else{
           emit JustPurchased(_sellerman,_buyerman,IBlokistaVault(BlokistaVault).getPrice(_tokenId),_tokenId,IERC721Metadata(BlokistaVault).tokenURI(_tokenId));
+          }
       }
     
-     
+     // function instantBuy()
      // Increasing the price of auctioned nft
      function increaseBid(uint256 _tokenId, uint256 _price) internal returns(uint256){
        
@@ -1712,33 +1757,37 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
         emit NftListStatus(_msgSender(), _tokenId, false);
     }
 
-    function createAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent) external _validateTokenOwner(_tokenId){
+    function createAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent , uint256 _instantBuyPrice) external _validateTokenOwner(_tokenId){
         require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)==0,"This item is listed or on auction already");
             IBlokistaVault(BlokistaVault).setMinBidIncrease(_tokenId,_minBidIncreasePercent);
             IBlokistaVault(BlokistaVault).setStatus(_tokenId,1);
-           
+           if(_instantBuyPrice>0){
+               IBlokistaVault(BlokistaVault).setInstantSellPrice(_tokenId,_price);
+               }
             
             IBlokistaVault(BlokistaVault).setPrice(_tokenId,_price);
             
-        emit AuctionStarted(_msgSender(),_tokenId,_price,_minBidIncreasePercent);
+        emit AuctionStarted(_msgSender(),_tokenId,_price,_minBidIncreasePercent, _instantBuyPrice);
 
 
     }
     //Time respect to seconds
-    function createDeadlineAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent, uint256 _deadline) external _validateTokenOwner(_tokenId) {
+    function createDeadlineAuction(uint256 _tokenId,uint256 _price, uint8 _minBidIncreasePercent, uint256 _deadline, uint256 _instantBuyPrice) external _validateTokenOwner(_tokenId) {
         require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)==0,"This item is listed or on auction already");
         require(IBlokistaVault(BlokistaVault).getDeadline(_tokenId)==0,"This item already has a deadline");
 
             IBlokistaVault(BlokistaVault).setMinBidIncrease(_tokenId,_minBidIncreasePercent);
             IBlokistaVault(BlokistaVault).setStatus(_tokenId,1);
-           
+           if(_instantBuyPrice>0){
+               IBlokistaVault(BlokistaVault).setInstantSellPrice(_tokenId,_price);
+               }
             
             IBlokistaVault(BlokistaVault).setPrice(_tokenId,_price);
             uint256 deadline= block.timestamp +_deadline;
             IBlokistaVault(BlokistaVault).setDeadline(_tokenId, deadline);
 
 
-        emit AuctionWithDeadlineStarted(_msgSender(),_tokenId,_price,_minBidIncreasePercent, deadline);
+        emit AuctionWithDeadlineStarted(_msgSender(),_tokenId,_price,_minBidIncreasePercent, deadline, _instantBuyPrice);
 
 
     }
@@ -1757,6 +1806,7 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
         IERC20(wbnb).safeTransfer(prevBidder,_prevPrice);  
 
          }
+        
        
        IWETH(wbnb).deposit{value: _offer}();
         
@@ -1774,6 +1824,10 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
         address _lastBidder=IBlokistaVault(BlokistaVault).getBidders(_id);
         uint256 _lastPrice=IBlokistaVault(BlokistaVault).getPrice(_id);
         _trade(_id,_lastPrice);
+         if(IBlokistaVault(BlokistaVault).getInstantSellPrice(_id)>0){
+         
+         IBlokistaVault(BlokistaVault).setInstantSellPrice(_id,0);
+         }
      if(IBlokistaVault(BlokistaVault).getDeadline(_id)!=0){
             IBlokistaVault(BlokistaVault).setDeadline(_id,0);
         }
@@ -1791,10 +1845,14 @@ function _justTrade(uint256 _id) internal {
         address payable _owner = payable(IERC721(BlokistaVault).ownerOf(_id));
         address payable _buyer=payable(_msgSender());
         uint256 _price=IBlokistaVault(BlokistaVault).getPrice(_id);
+        uint256 instPrice=IBlokistaVault(BlokistaVault).getInstantSellPrice(_id);
         uint8 _loyaltyFee=IBlokistaVault(BlokistaVault).getloyaltyFee(_id);
        IBlokistaVault(BlokistaVault).justTransfer(_owner,_buyer, _id);
         uint8 feePercent=IBlokistaVault(BlokistaVault).getFeePercent();
+        if(instPrice>0){
+            _price=instPrice;
 
+        }
         // Fee Cut
        uint256 _commissionValue = _price.mul(feePercent).div(100);
        uint256 _loyaltyValue=_price.mul(_loyaltyFee).div(100);
@@ -1851,9 +1909,12 @@ function _justTrade(uint256 _id) internal {
         uint256 nftIdBurnt = IBlokistaVault(BlokistaVault).getNftId(_tokenId);
         uint256 _newCount = IBlokistaVault(BlokistaVault).getNftCount(nftIdBurnt).sub(1);
         uint256 _newBCount = IBlokistaVault(BlokistaVault).getNftBurntCount(nftIdBurnt).sub(1);
+        string memory _nftName= IBlokistaVault(BlokistaVault).getNftNameOfTokenId(_tokenId);
         IBlokistaVault(BlokistaVault).setNftCount(nftIdBurnt,_newCount);
        IBlokistaVault(BlokistaVault).setNftBurntCount(nftIdBurnt,_newBCount);
        IBlokistaVault(BlokistaVault).justBurn(_tokenId);
+    
+    emit Burn(_msgSender(),_nftName,nftIdBurnt,_tokenId);
     }
     
 

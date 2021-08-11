@@ -2020,6 +2020,8 @@ function getBidders(uint256 _id)external view returns(address);
 function setBidders(uint256 _id,address _bidder)external;
 function getPrice(uint256 _id)external view returns(uint256);
 function setPrice(uint256 _id,uint256 _newprice) external;
+function getInstantSellPrice(uint256 _id)external view returns(uint256);
+function setInstantSellPrice(uint256 _id,uint256 _newprice) external;
 function getNftId(uint256 _tokenId) external view returns (uint256);
 
 function getloyaltyFee(uint256 _id) external view returns(uint8);
@@ -2044,6 +2046,12 @@ function setNftName(uint256 _nftId, string memory _name)
 
     function justTransfer(address from,address to,uint256 _id) external;
     function justBurn(uint256 _id)external;
+
+
+    function mint(address owner,
+        string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
+     external  returns (uint256);
+     function multipleMint(address owner,string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external   returns (uint256);
 }
 
 
@@ -2054,6 +2062,7 @@ pragma solidity ^0.6.8;
 
 
 contract BlokistaVault is ERC721, Ownable, IBlokistaVault {
+    
     using Counters for Counters.Counter;
     using Address for address;
    using SafeERC20 for IERC20;
@@ -2096,7 +2105,7 @@ contract BlokistaVault is ERC721, Ownable, IBlokistaVault {
 
     mapping(uint256 => address) private  bidders;
 
-
+    mapping(uint256 => uint256) private instantSellPrice;
     
 
 modifier _hasAccess {
@@ -2115,6 +2124,7 @@ modifier _validateBuyer(uint256 _tokenId,address _sender)  {
         require(_exists(_tokenId), "Error, wrong tokenId");
         require(haveListed[_tokenId], "Item not listed currently");
         require(_sender != ownerOf(_tokenId), "Can not buy what you own");
+         require(contractForAccess[_msgSender()],"This contract does not have access");
         _;
     }
 modifier _validateOfferer(uint256 _tokenId,uint256 _offer,address _sender) {
@@ -2122,6 +2132,7 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer,address _sender) {
         require(_sender != ownerOf(_tokenId), "Can not buy what you own");
         require(_offer>price[_tokenId]+price[_tokenId]*minBidIncrease[_tokenId]/100,"This offer is lower than minimum offer value, (maybe someone offered a bigger price just before you) ");
         require(onAuction[_tokenId],"This token is not on auction");
+         require(contractForAccess[_msgSender()],"This contract does not have access");
         _;
 }
     constructor(string memory _baseURI) public ERC721("Blokista", "BLOKISTA") {
@@ -2135,7 +2146,7 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer,address _sender) {
     return true;
 
 }
- function validateBuyer(uint256 _tokenId,address _sender)external view override _validateBuyer(_tokenId,_sender) returns(bool){
+ function validateBuyer(uint256 _tokenId,address _sender)external view override _validateBuyer(_tokenId,_sender) returns(bool) {
     
     return true;
 
@@ -2256,6 +2267,16 @@ function getPrice(uint256 _id)external view override returns(uint256){
 
       price[_id]=_newprice;
   }
+
+
+  function getInstantSellPrice(uint256 _id)external view override returns(uint256){
+
+        return instantSellPrice[_id];
+    }
+  function setInstantSellPrice(uint256 _id,uint256 _newprice) external override _hasAccess{
+
+      instantSellPrice[_id]=_newprice;
+  }
     /**
      * @dev Get nftId for a specific tokenId.
      */
@@ -2314,9 +2335,9 @@ function getPrice(uint256 _id)external view override returns(uint256){
     /**
      * @dev Mint NFTs. Only the owner can call it.
      */
-    function mint(
+    function mint(address owner,
         string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
-     external  returns (uint256) {
+     external _hasAccess override  returns (uint256) {
          
          uint256 _nftId=_nftIdCount.current();
         nftNames[_nftId] = _name;
@@ -2330,15 +2351,15 @@ function getPrice(uint256 _id)external view override returns(uint256){
         
         nftIds[newId] = _nftId;
         nftCount[_nftId] = nftCount[_nftId].add(1);
-        _safeMint(_msgSender(),newId);
+        _safeMint(owner,newId);
         _setTokenURI(newId, _tokenURI);
         loyaltyFee[newId]=_loyaltyfee;
         haveListed[newId]=false;
-        creatorArtist[newId]=_msgSender();     
+        creatorArtist[newId]=owner;     
         return newId;
     }
     
-function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external  returns (uint256){
+function multipleMint(address owner,string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external _hasAccess override returns (uint256){
     
     uint256 _nftId=_nftIdCount.current();
         
@@ -2351,7 +2372,7 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
         
         nftIds[newId] = _nftId;
         nftCount[_nftId] = nftCount[_nftId].add(1);
-        _safeMint(_msgSender(),newId);
+        _safeMint(owner,newId);
         _setTokenURI(newId, _tokenURIs[i]);
         haveListed[newId]=false;
         loyaltyFee[newId]=_loyaltyfee;
@@ -2362,9 +2383,7 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
      * @dev Set a unique name for each nftId. It is supposed to be called once.
      */
     function setNftName(uint256 _nftId, string memory _name)
-        external override _validateTokenOwner(_nftId,_msgSender())
-        
-    {
+        external override _validateTokenOwner(_nftId,_msgSender()) {
          require(_exists(_nftId), "Error, wrong nftId");
         require(_msgSender() == ownerOf(_nftId), "Only Owner Can set the name");
         
@@ -2377,7 +2396,7 @@ function multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _a
      function setFee(address _feeAddress, uint8 _feePercent) external  override onlyOwner {
         adminFeeAddress = _feeAddress;
         feePercent = _feePercent;
-    }
+     }
 
 
     
