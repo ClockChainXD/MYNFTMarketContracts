@@ -2051,7 +2051,7 @@ function setNftName(uint256 _nftId, string memory _name)
     function mint(address owner,
         string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
      external  returns (uint256);
-     function multipleMint(address owner,string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external   returns (uint256);
+     function multipleMint(address owner,string memory _tokenURI,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external   returns (uint256);
 }
 
 
@@ -2359,25 +2359,26 @@ function getPrice(uint256 _id)external view override returns(uint256){
         return newId;
     }
     
-function multipleMint(address owner,string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external _hasAccess override returns (uint256){
+function multipleMint(address owner,string memory _tokenURI,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external _hasAccess override returns (uint256){
     
     uint256 _nftId=_nftIdCount.current();
-        
+       
          _nftIdCount.increment();
     nftNames[_nftId] = _name;
+    uint256 newId;
         for(uint256 i=0;i<_amountOfToken;i++){
         
-        uint256 newId = _tokenIds.current();
+         newId = _tokenIds.current();
         _tokenIds.increment();
-        
+    
         nftIds[newId] = _nftId;
         nftCount[_nftId] = nftCount[_nftId].add(1);
         _safeMint(owner,newId);
-        _setTokenURI(newId, _tokenURIs[i]);
+        _setTokenURI(newId, _tokenURI);
         haveListed[newId]=false;
         loyaltyFee[newId]=_loyaltyfee;
         }
-        return _nftId;
+        return (newId-_amountOfToken);
 }
     /**
      * @dev Set a unique name for each nftId. It is supposed to be called once.

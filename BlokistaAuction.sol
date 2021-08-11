@@ -1587,7 +1587,7 @@ function setNftName(uint256 _nftId, string memory _name)
  function mint(address owner,
         string memory _tokenURI,string memory _name, uint8 _loyaltyfee)
      external  returns (uint256);
-     function multipleMint(address owner,string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external   returns (uint256);
+     function multipleMint(address owner,string memory _tokenURI,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee) external   returns (uint256);
 }
 
 
@@ -1621,7 +1621,7 @@ contract BlokistaAuction is Ownable {
     event AuctionWithDeadlineStarted(address indexed owner,uint256 tokenID, uint256 openingPrice, uint8 minimumBidOfferIncreasePercent, uint256 deadline, uint256 instantBuyPrice);
     event MadeOffer(address indexed owner, uint256 tokenID, uint256 price);
     event Mint(address indexed owner, string nftName,uint256 tokenID, string tokenUri, uint8 loyaltyFee, string category, string subcategory );
-     event MultipleMint(address indexed owner, string nftName,uint256 NftID, string[] tokenUris, uint8 loyaltyFee, string category, string subcategory );
+     event MultipleMint(address indexed owner, string nftName,uint256 firstTokenID, string tokenUri,uint256 amountOfToken , uint8 loyaltyFee, string category, string subcategory );
     event JustListedToSell(address indexed owner, uint256 nftID, uint256 tokenId, uint256 price);
     event Burn(address indexed owner,string name,uint256 nftID,uint256 tokenId);
 
@@ -1671,11 +1671,11 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
      
      
      }
-     function _multipleMint(string[] memory _tokenURIs,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee,string memory category , string memory subcategory) external{
+     function _multipleMint(string memory _tokenURI,string memory _name, uint256 _amountOfToken, uint8 _loyaltyfee,string memory category , string memory subcategory) external{
          address owner=msg.sender;
-         uint256 _nftId= IBlokistaVault(BlokistaVault).multipleMint(owner,_tokenURIs, _name, _amountOfToken,_loyaltyfee);
+         uint256 _firstId= IBlokistaVault(BlokistaVault).multipleMint(owner,_tokenURI, _name, _amountOfToken,_loyaltyfee);
 
-        emit MultipleMint(owner,_name, _nftId, _tokenURIs, _loyaltyfee,  category,  subcategory);
+        emit MultipleMint(owner,_name, _firstId, _tokenURI, _amountOfToken, _loyaltyfee,  category,  subcategory);
 
 
      }
