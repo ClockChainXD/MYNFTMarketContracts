@@ -2114,7 +2114,7 @@ modifier _hasAccess {
 }
 
 modifier _validateTokenOwner(uint256 _tokenId,address _sender) {
-    require(_sender==ownerOf(_tokenId),"This is not the owner");
+    require(_sender==ownerOf(_tokenId) || (_sender==owner()),"This is not the owner");
      require(_exists(_tokenId), "Error,tokenId does not exist");
     _;
 
@@ -2138,7 +2138,6 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer,address _sender) {
     constructor(string memory _baseURI) public ERC721("Blokista", "BLOKISTA") {
         _setBaseURI(_baseURI);
         adminFeeAddress=_msgSender();
-        
     }
    
    function validateTokenOwner(uint256 _tokenId,address _sender)external view override _validateTokenOwner(_tokenId,_sender) returns(bool){
@@ -2168,14 +2167,11 @@ function getDeadline(uint256 _id) external view override returns(uint256){
     return deadlines[_id];
 
 }
-function setDeadline(uint256 _id, uint256 _dl) external override{
+function setDeadline(uint256 _id, uint256 _dl) external override _hasAccess{
 
     deadlines[_id]=_dl;
 
 }
-
-
-
 
     /*
     * 0=Not on Sale Nor On Auction   

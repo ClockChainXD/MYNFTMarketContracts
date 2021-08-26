@@ -1746,7 +1746,11 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
 
 // Only owner of token can use this function    
     function cancelAuction(uint256 _tokenId) external _validateTokenOwner(_tokenId) {
+        if(_msgSender()!=Ownable(BlokistaVault).owner()){
         require(IBlokistaVault(BlokistaVault).getBidders(_tokenId)==address(0),"You can't cancel when you have bidders");
+            }
+address payable prevBidder=payable(IBlokistaVault(BlokistaVault).getBidders(_tokenId));
+        uint256 _prevPrice=IBlokistaVault(BlokistaVault).getPrice(_tokenId);
         require(IBlokistaVault(BlokistaVault).getStatus(_tokenId)>0,"This token is not on an auction or on sale");
 
         IBlokistaVault(BlokistaVault).setStatus(_tokenId,0);
@@ -1754,6 +1758,14 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
         if(IBlokistaVault(BlokistaVault).getDeadline(_tokenId)!=0){
             IBlokistaVault(BlokistaVault).setDeadline(_tokenId,0);
         }
+        
+        if(prevBidder!=address(0)){
+
+        IERC20(wbnb).safeTransfer(prevBidder,_prevPrice);  
+
+         }
+        IBlokistaVault(BlokistaVault).setBidders(_tokenId, address(0));
+
         emit NftListStatus(_msgSender(), _tokenId, false);
     }
 
@@ -1783,7 +1795,7 @@ modifier _validateOfferer(uint256 _tokenId,uint256 _offer){
                }
             
             IBlokistaVault(BlokistaVault).setPrice(_tokenId,_price);
-            uint256 deadline= block.timestamp +_deadline;
+            uint256 deadline=_deadline;
             IBlokistaVault(BlokistaVault).setDeadline(_tokenId, deadline);
 
 
